@@ -1,0 +1,12 @@
+version: 1
+packages:
+  - path: "."
+    name: "store"
+    engine: "postgresql"
+    schema: "schema.sql"
+    queries: "queries.sql"
+    sql_package: "pgx/v4"
+    emit_methods_with_db_argument: true
+overrides:
+  - go_type: github.com/jackc/pgtype.Timestamptz
+    db_type: timestamptz
