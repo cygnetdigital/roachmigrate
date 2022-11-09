@@ -13,19 +13,20 @@ import (
 
 // Migrate is a mechanism to check and run migrations
 type Migrate struct {
-	storedb  StoreConn
-	model    *store.Queries
-	targetdb Execer
-	key      string
-	files    []*File
+	model      *store.Queries
+	StoreConn  StoreConn
+	TargetConn Execer
+	Key        string
+	Files      []*File
 }
 
 func New(storedb StoreConn, targetdb Execer, key string, files []*File) *Migrate {
 	return &Migrate{
-		storedb: storedb,
-		model:   store.New(),
-		key:     key,
-		files:   sortFiles(files),
+		StoreConn:  storedb,
+		TargetConn: targetdb,
+		model:      store.New(),
+		Key:        key,
+		Files:      sortFiles(files),
 	}
 }
 
@@ -42,11 +43,11 @@ type StoreConn interface {
 
 // Status returns the status of migrations
 func (m *Migrate) Status(ctx context.Context) (*Status, error) {
-	return m.status(ctx, m.storedb)
+	return m.status(ctx, m.StoreConn)
 }
 
 func (m *Migrate) status(ctx context.Context, tx store.DBTX) (*Status, error) {
-	rows, err := m.model.ListForUpdate(ctx, tx, m.key)
+	rows, err := m.model.ListForUpdate(ctx, tx, m.Key)
 	if err != nil {
 		if store.IsNotInitialized(err) {
 			return nil, ErrStoreNotInitialized
@@ -54,7 +55,7 @@ func (m *Migrate) status(ctx context.Context, tx store.DBTX) (*Status, error) {
 		return nil, err
 	}
 
-	zipped := zip(m.files, rows)
+	zipped := zip(m.Files, rows)
 	hasErrors := false
 	inSync := true
 	var next *Migration
@@ -89,7 +90,7 @@ func (m *Migrate) status(ctx context.Context, tx store.DBTX) (*Status, error) {
 	}
 
 	return &Status{
-		Key:           m.key,
+		Key:           m.Key,
 		Migrations:    zipped,
 		InSync:        inSync,
 		HasErrors:     hasErrors,
@@ -99,7 +100,7 @@ func (m *Migrate) status(ctx context.Context, tx store.DBTX) (*Status, error) {
 
 // Run the next migration
 func (m *Migrate) Run(ctx context.Context, filename string) (*Migration, error) {
-	tx, err := m.storedb.Begin(ctx)
+	tx, err := m.StoreConn.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -127,8 +128,8 @@ func (m *Migrate) Run(ctx context.Context, filename string) (*Migration, error) 
 	next := status.NextMigration
 
 	row, err := m.model.Create(ctx, tx, store.CreateParams{
-		ID:       fmt.Sprintf("%s/%s", m.key, next.Filename),
-		Key:      m.key,
+		ID:       fmt.Sprintf("%s/%s", m.Key, next.Filename),
+		Key:      m.Key,
 		Filename: next.Filename,
 	})
 	if err != nil {
@@ -155,7 +156,7 @@ func (m *Migrate) runMigration(ctx context.Context, next *Migration) error {
 		ID: next.Row.ID,
 	}
 
-	_, err := m.targetdb.Exec(ctx, string(next.File.Contents))
+	_, err := m.TargetConn.Exec(ctx, string(next.File.Contents))
 	if err != nil {
 		up.Failed = true
 		up.FailReason = sql.NullString{Valid: true, String: err.Error()}
@@ -163,7 +164,7 @@ func (m *Migrate) runMigration(ctx context.Context, next *Migration) error {
 		up.Completed = true
 	}
 
-	row, updateErr := m.model.Update(ctx, m.storedb, up)
+	row, updateErr := m.model.Update(ctx, m.StoreConn, up)
 	if updateErr != nil {
 		return &migrationUpdateError{origErr: err, updatedErr: updateErr}
 	}

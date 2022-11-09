@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgconn"
 )
 
 //go:embed schema.sql
 var schema embed.FS
 
+type SchemaExecer interface {
+	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
+}
+
 // Init schema
-func Init(ctx context.Context, conn *pgx.Conn) error {
+func Init(ctx context.Context, conn SchemaExecer) error {
 	bts, err := schema.ReadFile("schema.sql")
 	if err != nil {
 		return fmt.Errorf("failed to read schema: %w", err)
